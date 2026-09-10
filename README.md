@@ -1,0 +1,98 @@
+# fact-check
+
+A recursive claim-verification protocol for AI agents. Put it in front of any paragraph, conclusion, or "I checked it" and it will not let your agent mark something verified that it never actually traced to identifiable evidence.
+
+Chinese name: **事实核查**（递归声明核查）.
+
+## The problem it solves
+
+Ask an agent "is this true?" and it will verify the two easiest claims, then declare the whole paragraph credible — the unverified remainder silently inherits the credibility of the verified part. Failure modes this protocol is built against:
+
+- Verifies the surface claim and misses the implicit ones (can these two numbers actually be divided? is a correlation being sold as causation? is "most" quantified?)
+- Treats memory, another agent's conclusion, or its own previous turn as evidence
+- Says "should be", "I recall", "broadly correct" instead of checking
+- Verifies that something *exists*, then treats the entire passage as trustworthy
+- Produces a verification report with no denominator, so nobody can see what was skipped
+
+## The kernel
+
+1. **Exhaustive decomposition first.** List every verifiable claim, numbered, including implicit ones — and deliver that list *before* verification starts. The list is the denominator; anything not covered needs somewhere visible to live.
+2. **Recursive chain.** For every claim, for every ground, chase *its* ground, until a terminus.
+3. **Terminus = "identifiable evidence endpoint", not "axiom".** A file's text proves the file says that. A command's output proves that command produced that output in that environment. A page proves the page currently reads that way. These are evidence about the *material*, not evidence about the *world* — and authority statistics are a secondary aggregate whose scope, sample, and time window can all be wrong, so they never earn the top grade.
+4. **Report per claim and publish the denominator.** One line per claim, plus a closing count. "All verified" is banned unless coverage is literally 100%.
+
+## What's inside SKILL.md
+
+- **Claim triage**: excluded (opinion, preference, user-supplied premise) / listed but unverifiable (predictions, oughts, values) / listed and verifiable
+- **Evidence grades**: A (first-hand) / B (a source records it) / C (secondary aggregate, relay, translation) — never substitutes for a status
+- **Four statuses**: `✓ verified` / `✗ falsified` / `? undetermined` / `○ not covered`, with an ASCII fallback (`OK / NO / ? / -`) for terminals that cannot render the glyphs
+- **Undetermined reasons**: no evidence found / sources conflict / circular grounds / beyond capability / no permission / no data
+- **A worked example** that calibrates decomposition granularity — the one thing no rule can specify
+
+## Install
+
+### Claude Code
+
+```bash
+git clone https://github.com/NNZQniuniu/fact-check.git ~/.claude/skills/fact-check
+```
+
+### DSH (or anything that scans `~/.agents/skills`)
+
+```bash
+git clone https://github.com/NNZQniuniu/fact-check.git ~/.agents/skills/fact-check
+```
+
+### The skill name must be kebab-case ASCII
+
+This is the one gotcha worth reading before you rename anything. DSH validates the frontmatter `name` against `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` at discovery time and drops the file with `ignored: invalid skill name` — it never reaches the registry, and the skill tool then reports `invalid skill name` before it even looks for the skill. A Chinese `name:` therefore makes the skill invisible, no matter what the directory is called.
+
+That is why the frontmatter here says `name: fact-check` while the content is Chinese. **The directory name is irrelevant** — discovery reads the frontmatter; a folder named `事实核查` works fine as long as `name:` is kebab-case.
+
+## Usage
+
+Give it a passage and it returns a decomposition, then a status per claim:
+
+```
+Input: "某公司去年营收增长 20%,因为用户数翻倍。"
+
+Decomposition: 6 claims
+  ① revenue grew (existence)   ② +20% (number)      ③ time window = "last year"
+  ④ user count doubled         ⑤ growth caused by it (attribution)
+  ⑥ both figures share a comparable basis (implicit premise)
+
+Report:
+  claim 1  "revenue grew"            ✓ verified (grade A: 10-K, p.42)
+  claim 2  "grew by 20%"             ? undetermined (sources conflict: 18% vs 20%)
+  claim 3  "time window last year"   ✓ verified (grade A)
+  claim 4  "user count doubled"      ○ not covered (out of scope this pass)
+  claim 5  "because user count ..."  ? undetermined (correlation sold as causation)
+  claim 6  "same basis"              ? undetermined (no data on the denominator)
+  — 6 claims: 2 verified, 3 undetermined, 1 not covered
+```
+
+## Design notes
+
+These are the deliberate trade-offs, since they look like omissions otherwise:
+
+- **Exhaustiveness cannot be self-proved.** Proving that no claim was missed would require performing an equally complete second decomposition — which is just as unprovable. So the protocol does not rely on "miss one claim and the whole thing failed" (a failure condition the violator themselves cannot observe). It enforces a *visible denominator* instead.
+- **Grades annotate; statuses conclude.** If a grade could stand in for a status, "grade B" would become a new laundering route to "verified". So a non-first-hand terminus must be written as `✓ verified (grade B)`.
+- **Circular grounds are a reason for "undetermined", not a fifth terminus** — a terminus has to terminate. (A cites B, B cites A is a termination failure.)
+- **Conditional truth is an annotation** (`✓ holds within premise P`), not a separate epistemic state; otherwise the status field mixes results with process.
+- **Predictions, oughts, and values are listed but not chased.** They are not undetermined — they are not truth-apt. Reporting them as "undetermined" would be a category error.
+
+## 中文说明
+
+**定位**:反幻觉协议,不是"查资料的方法论"。唯一目标是让「没验证」在输出里无处藏身。
+
+**内核四条**:①先拆解穷尽(含隐含声明)并先交付清单 ②逐条递归追依据链 ③终点是「可指认证据终点」而非「公理」——来源不等于真值 ④逐条汇报 + 公示分母,禁止「全部已验证」。
+
+**安装**:把本仓库克隆到 `~/.claude/skills/fact-check`(Claude Code)或 `~/.agents/skills/fact-check`(DSH)。
+
+**注意**:技能名必须是小写字母/数字/连字符组成的 kebab-case。DSH 在发现阶段就用 `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` 校验 frontmatter 的 `name`,不合规的文件会被静默丢弃(`ignored: invalid skill name`),中文名等于技能不存在。目录名不受影响,保持中文也可以。
+
+**四态**:`✓ 已验证` / `✗ 已证伪` / `? 未决` / `○ 未覆盖`(终端打不出符号时用 `OK / NO / ? / -`)。
+
+## License
+
+MIT — see [LICENSE](LICENSE).
