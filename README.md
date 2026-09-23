@@ -4,6 +4,30 @@ A recursive claim-verification protocol for AI agents. Put it in front of any pa
 
 Chinese name: **事实核查**（递归声明核查）.
 
+## 三个技能
+
+| 技能 | 谁调用 | 干什么 |
+|---|---|---|
+| `fact-check` | 模型自动 + 人 | 方法本身：拆解 → 递归追依据链 → 四态汇报。默认不落文件 |
+| `fact-check-with-docs` | 人 / 编排器 | 第一次核查，产出 `核查-<主题>.md` |
+| `fact-check-by-docs` | 人 / 编排器 | 读那份文档接着核查，只推进没打勾 / 有未处理 diff 的 |
+
+后两个带 `disable-model-invocation: true`（同 `grill-me` / `grill-with-docs`）：
+它们会写文件，所以只由人点名调用。两个壳里没有方法，方法都在 `fact-check`。
+
+核查文档是 Markdown：每条声明带状态，下面写依据（看了哪里 + 逐字原文），再一行
+`[x] 谁 日期`；不认就写 diff（改前 / 改后）+ 理由。**打勾 = 我看过、我认，
+机器不能打勾**；复述别人的话也不算。没打勾的项，
+`grep -n "\[ \]" 核查-*.md` 一条命令全列出来 —— 不需要脚本。
+
+DSH 只扫一层（`<root>/<name>/SKILL.md`，见 `dsh-skill-filesystem`）。三个技能在
+同一个仓库里，所以克隆完要把两个壳复制到 skills 根目录的顶层：
+
+```bash
+git clone https://github.com/NNZQniuniu/fact-check.git ~/.agents/skills/fact-check
+cp -r ~/.agents/skills/fact-check/skills/* ~/.agents/skills/
+```
+
 ## The problem it solves
 
 Ask an agent "is this true?" and it will verify the two easiest claims, then declare the whole paragraph credible — the unverified remainder silently inherits the credibility of the verified part. Failure modes this protocol is built against:
