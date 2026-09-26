@@ -1,32 +1,22 @@
 # fact-check
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 A recursive claim-verification protocol for AI agents. Put it in front of any paragraph, conclusion, or "I checked it" and it will not let your agent mark something verified that it never actually traced to identifiable evidence.
 
-Chinese name: **事实核查**（递归声明核查）.
+Chinese name: **事实核查** (递归声明核查).
 
-## 三个技能
+## The three skills
 
-| 技能 | 谁调用 | 干什么 |
+| Skill | Who invokes it | What it does |
 |---|---|---|
-| `fact-check` | 模型自动 + 人 | 方法本身：拆解 → 递归追依据链 → 四态汇报。默认不落文件 |
-| `fact-check-with-docs` | 人 / 编排器 | 第一次核查，产出 `核查-<主题>.md` |
-| `fact-check-by-docs` | 人 / 编排器 | 读那份文档接着核查，只推进没打勾 / 有未处理 diff 的 |
+| `fact-check` | the model and you | The method itself: decompose → chase every ground chain to a terminus → report per claim. Writes no files by default. |
+| `fact-check-with-docs` | you, or an orchestrator | The first pass. Produces `核查-<topic>.md`. |
+| `fact-check-by-docs` | you, or an orchestrator | Reads that document and continues. Advances only what is unticked, or carries an unresolved diff. |
 
-后两个带 `disable-model-invocation: true`（同 `grill-me` / `grill-with-docs`）：
-它们会写文件，所以只由人点名调用。两个壳里没有方法，方法都在 `fact-check`。
+The last two ship `disable-model-invocation: true` (same convention as `grill-me` / `grill-with-docs`): they write files, so only a human may name them. Neither shell contains any method — the method lives entirely in `fact-check`.
 
-核查文档是 Markdown：每条声明带状态，下面写依据（看了哪里 + 逐字原文），再一行
-`[x] 谁 日期`；不认就写 diff（改前 / 改后）+ 理由。**打勾 = 我看过、我认，
-机器不能打勾**；复述别人的话也不算。没打勾的项，
-`grep -n "\[ \]" 核查-*.md` 一条命令全列出来 —— 不需要脚本。
-
-DSH 只扫一层（`<root>/<name>/SKILL.md`，见 `dsh-skill-filesystem`）。三个技能在
-同一个仓库里，所以克隆完要把两个壳复制到 skills 根目录的顶层：
-
-```bash
-git clone https://github.com/NNZQniuniu/fact-check.git ~/.agents/skills/fact-check
-cp -r ~/.agents/skills/fact-check/skills/* ~/.agents/skills/
-```
+The check document is plain Markdown. Each claim carries a status, below it the ground (where you looked, plus the verbatim text), then one line of `[x] who date`. If you disagree, you write a diff (before / after) and a reason. **A tick means "I opened it and I accept it" — a machine may not tick.** Restating somebody else's words does not count either. Everything unticked is listed by one command, `grep -n "\[ \]" 核查-*.md` — no script needed.
 
 ## The problem it solves
 
@@ -61,11 +51,14 @@ Ask an agent "is this true?" and it will verify the two easiest claims, then dec
 git clone https://github.com/NNZQniuniu/fact-check.git ~/.claude/skills/fact-check
 ```
 
-### DSH (or anything that scans `~/.agents/skills`)
+### DSH, or anything that scans `~/.agents/skills`
 
 ```bash
 git clone https://github.com/NNZQniuniu/fact-check.git ~/.agents/skills/fact-check
+cp -r ~/.agents/skills/fact-check/skills/* ~/.agents/skills/
 ```
+
+DSH scans exactly one level (`<root>/<name>/SKILL.md`). All three skills live in this one repository, so the two shells must be copied up to the top of the skills root — the second line above does that.
 
 ### The skill name must be kebab-case ASCII
 
@@ -95,6 +88,20 @@ Report:
   — 6 claims: 2 verified, 3 undetermined, 1 not covered
 ```
 
+## Run it in a fresh session
+
+Everything this protocol is worth rests on one distinction: the difference between *"I opened that source"* and *"I remember opening it"*. Inside a long conversation that distinction has no physical basis — your agent's own earlier conclusions and the file text it actually just read are the same kind of token in the same window. A `✓` earned at turn 20 gets spent as evidence at turn 400, and nothing in the context marks it as second-hand by then.
+
+§二 of the skill already rules that a model's own previous turn is a claim to be checked, not a ground. Running the check inside the session that produced the claim asks that rule to fight its own context. It loses.
+
+So:
+
+- **Open a new session.** Feed it only the passage, document, or conclusion under review.
+- **Do not feed it the history that produced the conclusion.** No "here's what we found so far", no earlier report, no claim list already wearing tick marks. That material is the *object* of the check, never the background for it.
+- **One claim set per session.** Three conclusions to audit is three sessions.
+- **Better: run the same set two or three times in independent sessions.** The passes catch different errors, and the misses are not interchangeable — the pass that re-derives a number and the pass that asks what that number counts are doing different work. Do not resolve disagreement by majority: an error that survived two passes and fell to one is still an error. Take the union of the findings.
+- Continuing an existing document with `fact-check-by-docs` is the case this is designed for: the document carries the state, so the fresh session needs nothing else.
+
 ## Design notes
 
 These are the deliberate trade-offs, since they look like omissions otherwise:
@@ -104,18 +111,6 @@ These are the deliberate trade-offs, since they look like omissions otherwise:
 - **Circular grounds are a reason for "undetermined", not a fifth terminus** — a terminus has to terminate. (A cites B, B cites A is a termination failure.)
 - **Conditional truth is an annotation** (`✓ holds within premise P`), not a separate epistemic state; otherwise the status field mixes results with process.
 - **Predictions, oughts, and values are listed but not chased.** They are not undetermined — they are not truth-apt. Reporting them as "undetermined" would be a category error.
-
-## 中文说明
-
-**定位**:反幻觉协议,不是"查资料的方法论"。唯一目标是让「没验证」在输出里无处藏身。
-
-**内核四条**:①先拆解穷尽(含隐含声明)并先交付清单 ②逐条递归追依据链 ③终点是「可指认证据终点」而非「公理」——来源不等于真值 ④逐条汇报 + 公示分母,禁止「全部已验证」。
-
-**安装**:把本仓库克隆到 `~/.claude/skills/fact-check`(Claude Code)或 `~/.agents/skills/fact-check`(DSH)。
-
-**注意**:技能名必须是小写字母/数字/连字符组成的 kebab-case。DSH 在发现阶段就用 `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` 校验 frontmatter 的 `name`,不合规的文件会被静默丢弃(`ignored: invalid skill name`),中文名等于技能不存在。目录名不受影响,保持中文也可以。
-
-**四态**:`✓ 已验证` / `✗ 已证伪` / `? 未决` / `○ 未覆盖`(终端打不出符号时用 `OK / NO / ? / -`)。
 
 ## License
 
